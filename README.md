@@ -5,10 +5,81 @@ Automate the creation of SRT subtitle files for What the Dub!? game mods. Note t
 ## What It Does
 
 Takes an MP4 video and generates an SRT subtitle file with:
-- Speech-to-text transcription
+- Automated Speech-to-text transcription
 - Speaker name assignment per line
 - Replacing existing lines with the dub
 - Manual editing, if desired
-It also renames the files to provide compatibility with the Dub Editor by deusprogrammer (tested in 2.4.4-beta)
-Includes a tool to switch the tts gender and change/add identify clips with missing speakers.
 
+It also renames the files to provide compatibility with the Dub Editor by deusprogrammer (tested in 2.4.4-beta)
+
+Includes a tool to switch the tts gender and identify clips with missing speakers.
+
+Includes a tool for renaming existing MP4 and SRT files for compatibility with Dub Editor and identifying orphan files.
+
+## Installation
+
+### Python
+
+Prerequisites:
+
+- **Python 3.9+** (download from [python.org](https://www.python.org/downloads/))
+- **FFmpeg** (download from [ffmpeg.org](https://ffmpeg.org/download.html))
+
+Requirements:
+
+pip install -r requirements.txt
+
+Launch:
+
+python AutoDub.py
+
+### Windows executables
+
+There are also compiled executables (tested on Windows 10). There are two versions:
+
+**- AutoDub CUDA (ca. 3 GB)**
+
+  This executable supports GPU acceleration. An nVidia GPU is required (the app will work without it, but without acceleration it falls back to CPU). Note that the file is very big - not worth it if you can't actually use the acceleration.
+
+**- AutoDub CPU (ca. 200 MB)**
+
+  This is the more lightweight version that does not support GPU acceleration. Download if you don't have an nVidia GPU or if you don't want the enormous CUDA packages. Transcriptions will be much slower than with CUDA acceleration.
+
+## Default Workflow
+
+You will need an MP4 that's already trimmed to the length that it will be in the game.
+It is recommended to set up a folder structure that mirrors WTD mods ("VideoClips" and "Subtitles" in the same parent folder), you can also just use the working directory of Dub Editor /whatthedub/ (but note that this could potentially lead to overwritten files, particularly if you make edits in Dub Editor, then transcribe the same video again in AutoDub)
+
+### Set up (Settings):
+- Point AutoDub to "VideoClips" as the default input directory and "Subtitles" as the default output directory
+- Select the transcription model (large is recommended for quality, but it is slow) - the default model is what will load immediately after starting the app
+
+### Step 1:
+- Browse to an MP4 video
+- Click Generate Subtitles (the button will become available once the relevant components have been loaded - this only happens once after each launch or when you switch models)
+
+### Step 2:
+- Review the lines and split them by clicking the split button if necessary (splitting should always be the first thing you do)
+- Define Speakers for the lines (if consecutive lines have the same speaker, you only have to enter the speaker name once)
+- Add a checkmark next to the line you want to be muted for dubbing (you can select several, but they will be combined into one big dub rather than multiple dubs, since WTD does not support multiple dubs)
+- Click the switch button if you want to change the gender of the tts voice
+- Click "Dub lasts until end of video" if desired (only works if the dub is on the final line)
+
+### Step 3:
+- Review the SRT output
+- Preview is locked by default to avoid conflicts with the changes made in Step 2, but the user can unlock it to make manual edits
+
+### Save:
+- Check that the output directory at the bottom is the desired one (or change it)
+- Click Save SRT (by default this will create an SRT file and rename the MP4 file accordingly)
+
+### Check/Finalize:
+- Open the files in Dub Editor (if you have set the folders of the working directory as your defaults, they will automatically appear once you start Dub Editor) and adjust the line timings if necessary.
+
+## Genderfixer
+
+Genderfixer is a companion tool that loads a folder of SRT files and checks which gender each dub has. This is particularly useful because Dub Editor often quietly uses [female_dub] even though the dropdown says otherwise. It also shows you the speaker that's defined in the SRT file (and you will see if no speaker is defined). The tool allows you to load a ZIP file or folder (faster). Gender can be changed directly in the resulting table. Speakers can be added manually by editing the preview to the right (type XXXX: in front of the line or dub). All changes are only written to the files once you press "Make Changes Permanent" in the bottom left.
+
+## wtdRenamer
+
+Another companion tool. This can be used to rename existing video and srt files to avoid conflicts in Dub Editor. It also checks if there are orphan SRT files. Actually pressing the rename button can lead to some weird behavior and is currently not recommended.
