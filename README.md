@@ -52,7 +52,7 @@ python build_wtdRenamer.py
 
 ### Windows executables
 
-Export the folder of the ZIP file to any location on your computer. Run AutoDub.exe to launch.
+Export the folder of the ![ZIP file](https://github.com/raphalguul/AutoDub/releases) to any location on your computer. Run AutoDub.exe to launch.
 
 Compiled executables were tested on Windows 10.
 
