@@ -1,0 +1,2 @@
+PySimpleGUI>=4.60.4
+PyQt5>=5.15.0
