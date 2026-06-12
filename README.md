@@ -10,7 +10,7 @@ Takes an MP4 video and generates an SRT subtitle file with:
 - Replacing existing lines with the dub
 - Manual editing, if desired
 
-It also renames the files to provide compatibility with the Dub Editor by deusprogrammer (tested in 2.4.4-beta)
+It also renames the files to provide compatibility with the Dub Editor by deusprogrammer (tested in 2.4.4-beta).
 
 Includes a tool to switch the tts gender and identify clips with missing speakers.
 
@@ -27,23 +27,44 @@ Prerequisites:
 
 Requirements:
 
+```
 pip install -r requirements.txt
+```
 
 Launch:
 
+```
 python AutoDub.py
+```
 
 ### Windows executables
 
-There are also compiled executables (tested on Windows 10). There are two versions:
+Export the folder of the ZIP file to any location on your computer. Run AutoDub.exe to launch.
 
-**- AutoDub CUDA (ca. 3 GB)**
+Compiled executables were tested on Windows 10.
 
-  This executable supports GPU acceleration. An nVidia GPU is required (the app will work without it, but without acceleration it falls back to CPU). Note that the file is very big - not worth it if you can't actually use the acceleration.
+### Models and additional binaries
 
-**- AutoDub CPU (ca. 200 MB)**
+AutoDub has to download a bunch of crap to work (most of it happens on first launch):
 
-  This is the more lightweight version that does not support GPU acceleration. Download if you don't have an nVidia GPU or if you don't want the enormous CUDA packages. Transcriptions will be much slower than with CUDA acceleration.
+**Whisper Model (30 MB to 1 GB)**
+
+This is required to transcribe the actual video file. There are several models, varying in size. AutoDub downloads the tiny model by default, but large is recommended for best transcription quality. You can download and test the models, then delete the ones you don't want to use anymore in settings. If you were to keep all of them on your drive, you'd be looking at 1,7 gigabytes.
+
+**CPU binaries (5 MB)**
+
+This is required to transcribe via CPU. They are also the fallback for GPU transcription, so AutoDub downloads them by default on first launch. They can be deleted in settings (not recommended).
+
+**GPU binaries (700 MB)**
+
+This is required to transcribe via nVidia GPU. GPU transcription is much faster. The downside is that the dependencies are much bigger. To download them, enable GPU acceleration in settings.
+
+> [!NOTE]
+> If you don't have an nVidia GPU there is no point in enabling GPU acceleration and downloading the additional binaries. They can be deleted in settings.
+
+**FFMPEG binaries (90 MB)**
+
+FFMPEG is required to extract the audio from your MP4 files. If FFMPEG is not already installed or if AutoDub cannot find it in PATH, it will download it into the working directory. They can be deleted in settings (not recommended).
 
 ## Default Workflow
 
@@ -67,7 +88,7 @@ It is recommended to set up a folder structure that mirrors WTD mods ("VideoClip
 
 ### Step 3:
 - Review the SRT output
-- Preview is locked by default to avoid conflicts with the changes made in Step 2, but the user can unlock it to make manual edits
+- Preview is locked by default to avoid conflicts with the changes made in Step 2, but the user can unlock it to make manual edits (this is where you can correct any mistakes in the transcription)
 
 ### Save:
 - Check that the output directory at the bottom is the desired one (or change it)
@@ -78,8 +99,11 @@ It is recommended to set up a folder structure that mirrors WTD mods ("VideoClip
 
 ## Genderfixer
 
-Genderfixer is a companion tool that loads a folder of SRT files and checks which gender each dub has. This is particularly useful because Dub Editor often quietly uses [female_dub] even though the dropdown says otherwise. It also shows you the speaker that's defined in the SRT file (and you will see if no speaker is defined). The tool allows you to load a ZIP file or folder (faster). Gender can be changed directly in the resulting table. Speakers can be added manually by editing the preview to the right (type XXXX: in front of the line or dub). All changes are only written to the files once you press "Make Changes Permanent" in the bottom left.
+Genderfixer is a companion tool that loads a folder of SRT files and checks which gender each dub has. This is particularly useful because Dub Editor often quietly uses [female_dub] even though the dropdown says otherwise. It also shows you the speaker that's defined in the SRT file (and you will see if no speaker is defined). The tool allows you to load a ZIP file or folder (faster). Gender can be changed directly in the resulting table. Speakers can be added manually by editing the preview to the right (type "XXXX:" in front of the line or dub). All changes are only written to the originals once you press "Make Changes Permanent" in the bottom left.
 
 ## wtdRenamer
 
-Another companion tool. This can be used to rename existing video and srt files to avoid conflicts in Dub Editor. It also checks if there are orphan SRT files. Actually pressing the rename button can lead to some weird behavior and is currently not recommended.
+Another companion tool. This can be used to rename existing video and srt files to avoid conflicts in Dub Editor. It also checks if there are orphan SRT files. This tool has not been tested as much as the rest because it was orignally written to fix issues with filenames generated by earlier versions of AutoDub.
+
+> [!NOTE]
+> Clicking "Rename" may lead to some strange naming patterns, but shouldn't break compatibility with Dub Editor - except if you have previously added files that were now renamed to a pack in Dub Editor. It will no longer appear in your pack (though it will still contribute to the clip count displayed in Dub Editor). It is **not recommended** to actually use the rename button if you manage your packs with Dub Editor.
