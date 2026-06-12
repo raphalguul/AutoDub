@@ -39,10 +39,14 @@ Launch:
 python AutoDub.py
 ```
 
-You can also compile your own windows executables with
+You can also compile your own windows executables with:
 ```
 python build.py --cuda
+```
+```
 python build_GenderFixer.py
+```
+```
 python build_wtdRenamer.py
 ```
 
