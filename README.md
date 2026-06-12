@@ -39,6 +39,13 @@ Launch:
 python AutoDub.py
 ```
 
+You can also compile your own windows executables with
+```
+python build.py --cuda
+python build_GenderFixer.py
+python build_wtdRenamer.py
+```
+
 ### Windows executables
 
 Export the folder of the ZIP file to any location on your computer. Run AutoDub.exe to launch.
