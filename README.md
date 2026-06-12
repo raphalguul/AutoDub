@@ -12,11 +12,11 @@ Takes an MP4 video and generates an SRT subtitle file with:
 - Replacing existing lines with the dub
 - Manual editing, if desired
 
-It also renames the files to provide compatibility with the **Dub Editor** by deusprogrammer (tested in 2.4.4-beta).
+It also renames the files to provide compatibility with the *Dub Editor* by deusprogrammer (tested in 2.4.4-beta).
 
 Includes a tool to switch the tts gender and identify clips with missing speakers.
 
-Includes a tool for renaming existing MP4 and SRT files for compatibility with **Dub Editor** and identifying orphan files.
+Includes a tool for renaming existing MP4 and SRT files for compatibility with *Dub Editor* and identifying orphan files.
 
 ## Installation
 
