@@ -1,5 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
+import os
 
+use_upx = os.environ.get('AUTODUB_NOUPX', '0') != '1'
 
 block_cipher = None
 
@@ -32,8 +34,8 @@ exe = EXE(
     icon='Icons\\GenderFixer.ico',
     debug=False,
     bootloader_ignore_signals=False,
-    strip=True,
-    upx=True,
+    strip=False,
+    upx=use_upx,
     upx_exclude=[],
     runtime_tmpdir=None,
     console=False,

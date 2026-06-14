@@ -6,99 +6,12 @@ import sys
 import time
 import zipfile
 import urllib.request
-import json
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).parent
 DIST_DIR = PROJECT_ROOT / "dist"
 BUILD_DIR = PROJECT_ROOT / "build"
 VERSION_FILE = PROJECT_ROOT / "VERSION"
-CUDA_STAGING_DIR = PROJECT_ROOT / "dist" / "CUDA Package"
-
-WHISPER_CPP_REPO = "https://github.com/ggml-org/whisper.cpp"
-WHISPER_CPP_API = "https://api.github.com/repos/ggml-org/whisper.cpp/releases/latest"
-
-
-def find_whisper_cpp_asset(prefix):
-    """Fetch latest release JSON and return download URL of first asset
-    whose name starts with *prefix*, or None on failure."""
-    try:
-        req = urllib.request.Request(WHISPER_CPP_API)
-        req.add_header('Accept', 'application/json')
-        with urllib.request.urlopen(req, timeout=15) as r:
-            data = json.loads(r.read().decode())
-        for asset in data.get('assets', []):
-            name = asset.get('name', '')
-            if name.startswith(prefix):
-                return asset.get('browser_download_url')
-        return None
-    except Exception as e:
-        print(f"Warning: Could not fetch release assets: {e}")
-        return None
-
-
-def download_whisper_cpp_cuda():
-    """Download CUDA-enabled whisper.cpp binary and CUDA DLLs."""
-    cuda_bin_dir = CUDA_STAGING_DIR / "whisper_cuda"
-    cuda_bin_dir.mkdir(parents=True, exist_ok=True)
-
-    whisper_exe = cuda_bin_dir / "whisper.cpp.exe"
-    if whisper_exe.exists():
-        print(f"CUDA whisper.cpp already exists at {whisper_exe}")
-        return cuda_bin_dir
-
-    zip_path = cuda_bin_dir / "whisper-cuda.zip"
-
-    print("\nLooking up CUDA whisper.cpp release asset...")
-    zip_url = find_whisper_cpp_asset("whisper-cublas-")
-    if not zip_url:
-        print("CUDA whisper.cpp asset not found in latest release.")
-        return None
-    print(f"Downloading from {zip_url}...")
-    try:
-        urllib.request.urlretrieve(zip_url, zip_path)
-    except Exception as e:
-        print(f"Download failed: {e}")
-        return None
-
-    print("Extracting...")
-    with zipfile.ZipFile(zip_path, 'r') as z:
-        z.extractall(cuda_bin_dir)
-
-    zip_path.unlink()
-
-    if whisper_exe.exists():
-        print(f"CUDA whisper.cpp ready at {whisper_exe}")
-    else:
-        exes = list(cuda_bin_dir.rglob("whisper*.exe"))
-        if exes:
-            shutil.copy2(exes[0], whisper_exe)
-            print(f"Copied {exes[0]} to {whisper_exe}")
-        else:
-            print("Warning: No whisper.cpp exe found in CUDA zip")
-            return None
-
-    return cuda_bin_dir
-
-
-def find_cuda_dlls_from_zip():
-    """Find CUDA DLLs from existing cuda_dlls.zip or extracted directory."""
-    zip_file = CUDA_STAGING_DIR / "cuda_dlls.zip"
-    if zip_file.exists():
-        print(f"\nExtracting CUDA DLLs from {zip_file}...")
-        extract_dir = CUDA_STAGING_DIR / "cuda_dlls_extracted"
-        if extract_dir.exists():
-            shutil.rmtree(extract_dir)
-        with zipfile.ZipFile(zip_file, 'r') as z:
-            z.extractall(extract_dir)
-        return extract_dir
-
-    extracted_dir = CUDA_STAGING_DIR / "cuda_dlls"
-    if extracted_dir.exists():
-        print(f"Using CUDA DLLs from {extracted_dir}")
-        return extracted_dir
-
-    return None
 
 
 def prompt_version():
@@ -135,8 +48,52 @@ def prompt_upx():
     return inp != 'n'
 
 
+def run_pyinstaller(spec_file: Path, build_tmp: Path, env: dict):
+    cmd = [
+        "pyinstaller",
+        "--clean", "-y",
+        "--distpath", str(build_tmp),
+        "--workpath", str(BUILD_DIR),
+        str(spec_file),
+    ]
+    result = subprocess.run(cmd, cwd=PROJECT_ROOT, env=env)
+    if result.returncode != 0:
+        print(f"\nBuild failed: {spec_file.name}", file=sys.stderr)
+        raise RuntimeError(f"PyInstaller build failed for {spec_file.stem}")
+    print("Build succeeded!")
+
+
+def merge_output(src_name: str, final_dir: Path):
+    """Move PyInstaller output into final_dir. Handles both one-folder
+    (subdirectory) and one-file (bare exe) output layouts."""
+    tmp = DIST_DIR / "_build_temp"
+    src_dir = tmp / src_name
+    src_exe = tmp / f"{src_name}.exe"
+    if not final_dir.exists():
+        final_dir.mkdir(parents=True)
+    if src_dir.exists():
+        for item in src_dir.iterdir():
+            dst = final_dir / item.name
+            if dst.exists():
+                if dst.is_dir():
+                    shutil.rmtree(dst)
+                else:
+                    dst.unlink()
+            shutil.move(str(item), str(final_dir))
+    elif src_exe.exists():
+        dst = final_dir / f"{src_name}.exe"
+        if dst.exists():
+            dst.unlink()
+        shutil.move(str(src_exe), str(dst))
+
+
+def clean_build_tmp():
+    tmp = DIST_DIR / "_build_temp"
+    if tmp.exists():
+        shutil.rmtree(tmp)
+
+
 def download_cpu_whisper_cpp(target_dir: Path):
-    """Download CPU whisper.cpp build from GitHub releases."""
     WHISPER_CPP_CPU_URL = "https://github.com/ggml-org/whisper.cpp/releases/latest/download/whisper-bin-x64.zip"
     tmp = PROJECT_ROOT / "build" / "_whisper_dl"
     if tmp.exists():
@@ -173,109 +130,146 @@ def download_cpu_whisper_cpp(target_dir: Path):
     return False
 
 
-def build(use_upx=True, cuda=False):
-    prompt_version()
-
-    spec_file = PROJECT_ROOT / "AutoDub_CUDA.spec" if cuda else PROJECT_ROOT / "AutoDub.spec"
-    output_dir = DIST_DIR / ("AutoDub CUDA" if cuda else "AutoDub")
+def build_autodub(version, use_upx, final_dir):
+    build_tmp = DIST_DIR / "_build_temp"
     whisper_staging = DIST_DIR / "_whisper_staging"
 
     env = os.environ.copy()
     if not use_upx:
         env['AUTODUB_NOUPX'] = '1'
 
-    if cuda:
-        if not download_whisper_cpp_cuda():
-            print("ERROR: CUDA whisper.cpp download failed")
-            raise SystemExit(1)
-        cuda_whisper_dir = CUDA_STAGING_DIR / "whisper_cuda"
-        if cuda_whisper_dir.exists():
-            env['AUTODUB_WHISPER_CPP_DIR'] = str(cuda_whisper_dir)
-        cuda_dll_dir = find_cuda_dlls_from_zip()
-        if cuda_dll_dir:
-            env['AUTODUB_CUDA_DLL_DIR'] = str(cuda_dll_dir)
-        else:
-            print("Warning: No CUDA DLLs found.")
-    else:
-        if whisper_staging.exists():
-            shutil.rmtree(whisper_staging)
-        download_cpu_whisper_cpp(whisper_staging)
-        env['AUTODUB_WHISPER_CPP_DIR'] = str(whisper_staging)
+    if whisper_staging.exists():
+        shutil.rmtree(whisper_staging)
+    download_cpu_whisper_cpp(whisper_staging)
+    env['AUTODUB_WHISPER_CPP_DIR'] = str(whisper_staging)
 
-    if output_dir.exists():
-        print(f"Cleaning previous build: {output_dir}")
-        shutil.rmtree(output_dir)
+    if build_tmp.exists():
+        shutil.rmtree(build_tmp)
 
-    print(f"\nBuilding AutoDub {'CUDA' if cuda else 'CPU'} with PyInstaller...")
-    cmd = [
-        "pyinstaller",
-        "--clean", "-y",
-        "--distpath", str(DIST_DIR),
-        "--workpath", str(BUILD_DIR),
-    ]
-    cmd.append(str(spec_file))
+    print(f"\n--- AutoDub ---")
+    run_pyinstaller(PROJECT_ROOT / "AutoDub.spec", build_tmp, env)
+    merge_output("AutoDub", final_dir)
 
-    result = subprocess.run(cmd, cwd=PROJECT_ROOT, env=env)
-    if result.returncode != 0:
-        print("\nBuild failed!", file=sys.stderr)
-        raise RuntimeError("PyInstaller build failed")
-    print("Build succeeded!")
+    exe = final_dir / "AutoDub.exe"
+    internal = final_dir / "_internal"
+    exe_size = exe.stat().st_size
+    internal_size = sum(f.stat().st_size for f in internal.rglob('*') if f.is_file()) if internal.exists() else 0
+    print(f"  AutoDub.exe: {exe_size / 1e6:.1f} MB | _internal: {internal_size / 1e6:.1f} MB")
 
 
-def copy_cuda_output():
-    """Copy CUDA build output to CUDA-named directory."""
-    src = DIST_DIR / "AutoDub"
-    dst = DIST_DIR / "AutoDub CUDA"
-    if src.exists() and src != dst:
-        if dst.exists():
-            shutil.rmtree(dst)
-        print(f"\nCopying to {dst}...")
-        shutil.copytree(src, dst)
-        print("Done.")
+def build_audiopatcher(version, use_upx, final_dir):
+    build_tmp = DIST_DIR / "_build_temp"
+
+    env = os.environ.copy()
+    if not use_upx:
+        env['AUTODUB_NOUPX'] = '1'
+
+    if build_tmp.exists():
+        shutil.rmtree(build_tmp)
+
+    print(f"\n--- AudioPatcher ---")
+    run_pyinstaller(PROJECT_ROOT / "AudioPatcher.spec", build_tmp, env)
+    merge_output("AudioPatcher", final_dir)
+
+    exe = final_dir / "AudioPatcher.exe"
+    internal = final_dir / "_internal_audiopatcher"
+    exe_size = exe.stat().st_size
+    internal_size = sum(f.stat().st_size for f in internal.rglob('*') if f.is_file()) if internal.exists() else 0
+    print(f"  AudioPatcher.exe: {exe_size / 1e6:.1f} MB | _internal_audiopatcher: {internal_size / 1e6:.1f} MB")
+
+
+def build_genderfixer(version, use_upx, final_dir):
+    build_tmp = DIST_DIR / "_build_temp"
+
+    env = os.environ.copy()
+    if not use_upx:
+        env['AUTODUB_NOUPX'] = '1'
+
+    if build_tmp.exists():
+        shutil.rmtree(build_tmp)
+
+    print(f"\n--- GenderFixer ---")
+    run_pyinstaller(PROJECT_ROOT / "GenderFixer.spec", build_tmp, env)
+    merge_output("GenderFixer", final_dir)
+
+    exe = final_dir / "GenderFixer.exe"
+    exe_size = exe.stat().st_size
+    print(f"  GenderFixer.exe: {exe_size / 1e6:.1f} MB")
+
+
+def build_wtdrenamer(version, use_upx, final_dir):
+    build_tmp = DIST_DIR / "_build_temp"
+
+    env = os.environ.copy()
+    if not use_upx:
+        env['AUTODUB_NOUPX'] = '1'
+
+    if build_tmp.exists():
+        shutil.rmtree(build_tmp)
+
+    print(f"\n--- wtdRenamer ---")
+    run_pyinstaller(PROJECT_ROOT / "wtdRenamer.spec", build_tmp, env)
+    merge_output("wtdRenamer", final_dir)
+
+    exe = final_dir / "wtdRenamer.exe"
+    exe_size = exe.stat().st_size
+    print(f"  wtdRenamer.exe: {exe_size / 1e6:.1f} MB")
 
 
 def clean_build():
     if BUILD_DIR.exists():
         shutil.rmtree(BUILD_DIR)
         print(f"Cleaned build cache: {BUILD_DIR}")
+    clean_build_tmp()
+    staging = DIST_DIR / "_whisper_staging"
+    if staging.exists():
+        shutil.rmtree(staging)
 
 
-def print_summary(elapsed, cuda=False):
-    out = DIST_DIR / ("AutoDub CUDA" if cuda else "AutoDub")
-    exe = out / "AutoDub.exe"
-    internal = out / "_internal"
-    if not (exe.exists() and internal.exists()):
+def print_summary(elapsed, final_dir: Path):
+    files = []
+    for name in ('AutoDub.exe', 'AudioPatcher.exe', 'GenderFixer.exe', 'wtdRenamer.exe'):
+        exe = final_dir / name
+        if exe.exists():
+            files.append((name, exe.stat().st_size))
+    if not files:
         return
 
-    exe_size = exe.stat().st_size
-    internal_size = sum(f.stat().st_size for f in internal.rglob('*') if f.is_file())
-    total = exe_size + internal_size
+    total_main = sum(s for _, s in files)
+    internal_dirs = ['_internal', '_internal_audiopatcher']
+    total_internal = 0
+    for d in internal_dirs:
+        p = final_dir / d
+        if p.exists():
+            total_internal += sum(f.stat().st_size for f in p.rglob('*') if f.is_file())
 
     mins, secs = divmod(int(elapsed), 60)
     print(f"\n{'='*50}")
-    print(f"{'CUDA' if cuda else 'CPU'} build complete!  ({mins}m {secs}s)")
+    print(f"AutoDub Suite build complete!  ({mins}m {secs}s)")
     print(f"{'='*50}")
-    print(f"Output: {out}")
-    print(f"  AutoDub.exe: {exe_size / 1e6:.1f} MB")
-    print(f"  _internal:   {internal_size / 1e6:.1f} MB")
-    print(f"  Total:       {total / 1e6:.1f} MB")
-    if cuda:
-        print(f"  CUDA:        Included")
+    print(f"Output: {final_dir}")
+    for name, size in files:
+        print(f"  {name}: {size / 1e6:.1f} MB")
+    print(f"  Total exes: {total_main / 1e6:.1f} MB")
+    print(f"  Internal deps: {total_internal / 1e6:.1f} MB")
+    print(f"  Grand total: {(total_main + total_internal) / 1e6:.1f} MB")
 
 
 def main():
-    import argparse
-    parser = argparse.ArgumentParser(description="Build AutoDub")
-    parser.add_argument('--cuda', action='store_true', help='Build CUDA version')
-    args = parser.parse_args()
+    prompt_version()
+    version = VERSION_FILE.read_text().strip()
+    use_upx = prompt_upx()
+    final_dir = DIST_DIR / f"AutoDub Suite {version}"
 
     _start = time.time()
-    use_upx = prompt_upx()
-    build(use_upx, cuda=args.cuda)
-    if args.cuda:
-        copy_cuda_output()
+
+    build_autodub(version, use_upx, final_dir)
+    build_audiopatcher(version, use_upx, final_dir)
+    build_genderfixer(version, use_upx, final_dir)
+    build_wtdrenamer(version, use_upx, final_dir)
+
     clean_build()
-    print_summary(time.time() - _start, cuda=args.cuda)
+    print_summary(time.time() - _start, final_dir)
 
 
 if __name__ == "__main__":

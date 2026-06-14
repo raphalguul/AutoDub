@@ -76,7 +76,7 @@ def main():
             sg.InputText(key="-VIDEO-", disabled=True, size=(30, 1)),
             sg.Button("Browse", key="-BROWSE-VIDEO-")
         ],
-        [sg.Button("Generate subtitles", key="-TRANSCRIBE-", disabled=True), sg.Text("", key="-STATUS-", text_color="yellow")],
+        [sg.Button("Generate subtitles", key="-TRANSCRIBE-", disabled=True), sg.Text("", key="-STATUS-", size=(25, 1), text_color="yellow")],
         [sg.Text("Transcription model:", font=("Arial", 9))],
         [sg.Radio("tiny", "-MODEL-", key="-MODEL-tiny-", default=main_cfg.get("default_model") == "tiny", font=("Arial", 9), enable_events=True),
          sg.Radio("base", "-MODEL-", key="-MODEL-base-", default=main_cfg.get("default_model") == "base", font=("Arial", 9), enable_events=True),
@@ -103,12 +103,12 @@ def main():
     
     step3_right = [
         [sg.Text("Useful (?) Information", font=("Arial", 12, "bold"))],
-        [sg.Multiline(size=(50, 21), key="-DEBUG-LOG-", disabled=True, autoscroll=True, font=("Consolas", 9))],
-        [sg.Button("Clear Log", key="-CLEAR-LOG-")],
+        [sg.Multiline(size=(50, 21), key="-DEBUG-LOG-", disabled=True, autoscroll=True, expand_x=True, font=("Consolas", 9))],
+        [sg.Button("Clear log", key="-CLEAR-LOG-")],
     ]
     
     bottom_layout = [
-        [sg.Column(step3_left, vertical_alignment="top", pad=(0, 0)), sg.Column(step3_right, vertical_alignment="top", pad=(3, 0))]
+        [sg.Column(step3_left, vertical_alignment="top", pad=(0, 0)), sg.Column(step3_right, vertical_alignment="top", pad=(3, 0), expand_x=True)]
     ]
     
     save_layout = [
@@ -116,7 +116,7 @@ def main():
             sg.InputText(key="-OUTPUT-", size=(40, 1), default_text="output.srt", disabled=True),
             sg.Button("Browse", key="-BROWSE-", disabled=True)
         ],
-        [sg.Button("Save SRT", key="-SAVE-SRT-", disabled=True), sg.Button("GenderFixer", key="-ZIP-GENDER-"), sg.Button("wtdRenamer", key="-FILE-RENAMER-"), sg.Button("Settings"), sg.Button("Exit", key="-EXIT-")],
+        [sg.Button("Save SRT", key="-SAVE-SRT-", disabled=True), sg.Button("Switch to Dub Editor", key="-DUB-EDITOR-"), sg.Button("GenderFixer", key="-ZIP-GENDER-"), sg.Button("AudioPatcher", key="-AUDIO-PATCHER-"), sg.Button("wtdRenamer", key="-FILE-RENAMER-"), sg.Button("Settings"), sg.Button("Exit", key="-EXIT-")],
     ]
     
     layout = [
@@ -127,7 +127,7 @@ def main():
         *save_layout,
     ]
     
-    window = sg.Window("AutoDub", layout, size=(1200, 900), resizable=False, finalize=True, icon=_icon_path('AutoDub.ico'))
+    window = sg.Window("AutoDub", layout, size=(880, 900), margins=(0, 0), resizable=False, finalize=True, icon=_icon_path('AutoDub.ico'))
     set_main_win(window)
     generator.log_fn = lambda msg: window.write_event_value("-TIMING-LOG-", msg)
     
@@ -253,6 +253,7 @@ def main():
     _audio_extract_thread = None
     _audio_ready = False
     _gf_process = None
+    _ap_process = None
     _fr_process = None
     _last_manual_preview = ""
     _manual_win = None
@@ -260,6 +261,8 @@ def main():
     _audio_extract_start = None
     _model_downloading = False
     _model_download_seq = 0
+    _export_mp4_path = None
+    _audio_exporting = False
 
     def _start_model_download(model_name):
         nonlocal _model_download_seq, _model_downloading
@@ -278,7 +281,7 @@ def main():
     
     def update_button_states():
         """Update button enabled/disabled states and colors based on current conditions"""
-        nonlocal _transcription_successful, _has_dub, _has_speaker, _unsaved_changes, _audio_extracting, _audio_ready, _preview_editing, _last_manual_preview, _transcribing, _model_downloading
+        nonlocal _transcription_successful, _has_dub, _has_speaker, _unsaved_changes, _audio_extracting, _audio_ready, _preview_editing, _last_manual_preview, _transcribing, _model_downloading, _export_mp4_path, _audio_exporting
         
         video_selected = bool(window["-VIDEO-"].get())
         try:
@@ -296,6 +299,8 @@ def main():
                     break
         
         window["-TRANSCRIBE-"].update(disabled=not (video_selected and not _audio_extracting and not _transcribing and not _model_downloading))
+        for size in ('tiny', 'base', 'small', 'medium', 'large'):
+            window[f"-MODEL-{size}-"].update(disabled=_model_downloading)
         window["-UPDATE-"].update(disabled=not _transcription_successful)
         
         last_is_dub = False
@@ -307,7 +312,7 @@ def main():
         window["-OUTPUT-"].update(disabled=not srt_has_content)
         window["-BROWSE-"].update(disabled=not srt_has_content)
         
-        window["-SAVE-SRT-"].update(disabled=not srt_has_content)
+        window["-SAVE-SRT-"].update(disabled=not srt_has_content or _audio_exporting)
         if srt_has_content and _transcription_successful and _has_dub and _has_speaker:
             window["-SAVE-SRT-"].update(button_color=("white", "green"))
         else:
@@ -509,6 +514,32 @@ def main():
                 rebuild_speaker_rows()
                 update_srt_preview()
                 update_button_states()
+
+                # Auto-launch audio gain/DRC export if enabled
+                if (main_cfg.get("audio_processing_enabled", False)
+                        and _export_mp4_path
+                        and not _audio_exporting):
+                    _audio_exporting = True
+                    window["-STATUS-"].update("Exporting processed MP4 audio...", text_color="yellow")
+                    _log(window, f"Starting audio export: {_export_mp4_path}")
+                    def _export_worker():
+                        try:
+                            ok = generator.process_audio_export(
+                                output_path=_export_mp4_path,
+                                gain_enabled=main_cfg.get("audio_gain_enabled", True),
+                                gain_ceiling_db=main_cfg.get("audio_gain_ceiling", -20.0),
+                                drc_enabled=main_cfg.get("audio_drc_enabled", True),
+                                drc_threshold=main_cfg.get("audio_drc_threshold", -12.0),
+                                drc_ratio=main_cfg.get("audio_drc_ratio", 2.0),
+                                drc_attack=main_cfg.get("audio_drc_attack", 0.20),
+                                drc_release=main_cfg.get("audio_drc_release", 1.0),
+                            )
+                        except Exception as e:
+                            import traceback
+                            _log(window, f"Audio export crashed: {e}\n{traceback.format_exc()}")
+                            ok = False
+                        window.write_event_value("-AUDIO-EXPORT-DONE-", ok)
+                    threading.Thread(target=_export_worker, daemon=True).start()
             else:
                 err = generator._last_error or "Unknown error"
                 _log(window, f"Transcription failed: {err}")
@@ -547,6 +578,19 @@ def main():
                 _audio_extract_start = None
                 _log(window, f"Audio extraction failed: {err}")
             update_button_states()
+        
+        if event == "-AUDIO-EXPORT-DONE-":
+            _audio_exporting = False
+            if values[event]:
+                _log(window, f"Audio export OK — {_export_mp4_path}")
+                window["-STATUS-"].update(
+                    f"✓ Exported processed MP4: {os.path.basename(_export_mp4_path)}",
+                    text_color="white"
+                )
+            else:
+                err = generator._last_error or "unknown"
+                _log(window, f"Audio export failed: {err}")
+                window["-STATUS-"].update("✗ Audio export failed", text_color="red")
         
         if event in ('-MODEL-tiny-', '-MODEL-base-', '-MODEL-small-', '-MODEL-medium-', '-MODEL-large-'):
             model_name = event.split('-')[2]
@@ -604,15 +648,7 @@ def main():
                 window.refresh()
                 def _extract_worker():
                     ok = generator.extract_audio()
-                    if ok:
-                        import wave as _wave
-                        try:
-                            with _wave.open(generator.audio_file, 'r') as _w:
-                                generator.video_duration = _w.getnframes() / _w.getframerate()
-                        except Exception as e:
-                            _log(window, f"Duration read failed: {e}")
-                            generator.video_duration = None
-                    else:
+                    if not ok:
                         err = generator._last_error or "unknown"
                         _log(window, f"Audio extract failed: {err}")
                     window.write_event_value("-AUDIO-EXTRACTED-", ok)
@@ -634,6 +670,7 @@ def main():
             
             if generator.set_video(video_path):
                 original_video_path = video_path
+                generator.video_duration = generator._get_video_duration()
                 generator.dub_extend_to_end = False
                 window["-EXTEND-DUB-"].update("Dub lasts until end of video")
                 window.refresh()
@@ -647,6 +684,7 @@ def main():
                 srt_name = base_name + ".srt"
                 out_dir = main_cfg.get("output_dir") or os.path.dirname(video_path)
                 window["-OUTPUT-"].update(os.path.join(out_dir, srt_name))
+                _export_mp4_path = video_path
                 
                 model_name = next(k.split("-")[-2] for k in ("-MODEL-tiny-", "-MODEL-base-", "-MODEL-small-", "-MODEL-medium-", "-MODEL-large-") if values.get(k))
                 _logv(f"starting transcription: {os.path.basename(video_path)} (model: {model_name})", _click_time)
@@ -661,13 +699,6 @@ def main():
                         _transcription_successful = False
                         update_button_states()
                         continue
-                    import wave as _wave
-                    try:
-                        with _wave.open(generator.audio_file, 'r') as _w:
-                            generator.video_duration = _w.getnframes() / _w.getframerate()
-                    except Exception as e:
-                        _log(window, f"Duration read failed: {e}")
-                        generator.video_duration = None
                     _audio_ready = True
                 
                 # Start background transcription (no cancel — whisper can't be cancelled)
@@ -699,6 +730,7 @@ def main():
                 generator._transcribe_warned_slow = False
                 
                 # Estimate for timeout warning
+                import wave as _wave
                 try:
                     w = _wave.open(generator.audio_file, 'r')
                     audio_duration = w.getnframes() / w.getframerate()
@@ -843,6 +875,7 @@ def main():
             settings_layout = [
                 [sg.Text("Default video folder:"), sg.InputText(key="-SET-INPUT-", default_text=main_cfg.get("input_dir", "")), sg.FolderBrowse(initial_folder=main_cfg.get("input_dir", ""))],
                 [sg.Text("Default SRT output folder:"), sg.InputText(key="-SET-OUTPUT-", default_text=main_cfg.get("output_dir", "")), sg.FolderBrowse(initial_folder=main_cfg.get("output_dir", ""))],
+                [sg.Text("Dub Editor path:"), sg.InputText(key="-SET-DUB-EDITOR-", default_text=main_cfg.get("dub_editor_path", "")), sg.FileBrowse(file_types=(("Executables", "*.exe"),))],
                 [sg.Text("Log folder:"), sg.InputText(key="-SET-LOG-PATH-", default_text=_log_path), sg.FolderBrowse(initial_folder=_log_path)],
                 [sg.HorizontalSeparator()],
                 [sg.Text("Default transcription model:")],
@@ -860,7 +893,7 @@ def main():
                              default=main_cfg.get("cuda_fallback_cpu", False))],
                 [sg.Checkbox("Suppress non-speech (experimental)", key="-SET-SUPPRESS-SILENCE-",
                              default=main_cfg.get("suppress_silence", True))],
-                [sg.Checkbox("Rename MP4 files (for Compatibility with Dub Editor)", 
+                [sg.Checkbox("Rename MP4 files (for compatibility with Dub Editor)", 
                              key="-SET-RENAME-MP4-", 
                              default=main_cfg.get("rename_mp4", True))],
                 [sg.Checkbox("Add periods to sentence lines automatically", key="-SET-PUNCTUATE-",
@@ -869,6 +902,11 @@ def main():
                              default=main_cfg.get("log_cleanup_enabled", True)),
                   sg.Spin([str(i) for i in range(1, 366)], initial_value=str(main_cfg.get("log_cleanup_days", 30)),
                           key="-SET-LOG-DAYS-", size=(5, 1)), sg.Text("days")],
+                [sg.HorizontalSeparator()],
+                [sg.Text("Audio Processing:", font=("Arial", 10, "bold"))],
+                [sg.Checkbox("Enable audio gain/DRC export after transcription", key="-SET-AUDIO-ENABLE-",
+                             default=main_cfg.get("audio_processing_enabled", False))],
+                [sg.Button("Open Audio Settings...", key="-OPEN-AUDIO-SETTINGS-")],
                 [sg.HorizontalSeparator()],
                 [sg.Text("GenderFixer Settings:", font=("Arial", 10, "bold"))],
                 [sg.Text("Default input folder:"), sg.InputText(key="-SET-GF-INPUT-", default_text=gf_cfg.get("input_dir", "")), sg.FolderBrowse(initial_folder=gf_cfg.get("input_dir", ""))],
@@ -907,8 +945,10 @@ def main():
                     main_cfg["cuda_fallback_cpu"] = svals.get("-SET-CUDA-FALLBACK-", False)
                     main_cfg["suppress_silence"] = svals.get("-SET-SUPPRESS-SILENCE-", True)
                     main_cfg["punctuate_srt"] = svals.get("-SET-PUNCTUATE-", True)
+                    main_cfg["audio_processing_enabled"] = svals.get("-SET-AUDIO-ENABLE-", False)
                     renamer_cfg["default_folder"] = svals.get("-SET-RENAMER-FOLDER-", "").strip()
                     renamer_cfg["remember_last"] = svals.get("-SET-RENAMER-REMEMBER-", False)
+                    main_cfg["dub_editor_path"] = svals.get("-SET-DUB-EDITOR-", "").strip()
                     config["log_path"] = svals.get("-SET-LOG-PATH-", "logs").strip()
                     gf_cfg["input_dir"] = svals["-SET-GF-INPUT-"].strip()
                     gf_cfg["overwrite_original"] = svals.get("-SET-GF-OVERWRITE-", False)
@@ -918,6 +958,69 @@ def main():
                         window.write_event_value("-CUDA-TOGGLED-", new_cuda)
                     
                     break
+                if sev == "-OPEN-AUDIO-SETTINGS-":
+                    audio_layout = [
+                        [sg.Text("Autogain", font=("Arial", 10, "bold"))],
+                        [sg.Checkbox("Enable autogain", key="-AD-GAIN-ENABLE-",
+                                     default=main_cfg.get("audio_gain_enabled", True))],
+                        [sg.Text("Target loudness (LUFS):"), sg.Slider(range=(-30, -5),
+                                default_value=main_cfg.get("audio_gain_ceiling", -20.0),
+                                key="-AD-GAIN-CEILING-", orientation="h", size=(30, 10), resolution=0.5)],
+                        [sg.HorizontalSeparator()],
+                        [sg.Text("DRC", font=("Arial", 10, "bold"))],
+                        [sg.Checkbox("Enable DRC", key="-AD-DRC-ENABLE-",
+                                     default=main_cfg.get("audio_drc_enabled", True))],
+                        [sg.Text("Threshold (dB):"), sg.Slider(range=(-30, 0),
+                                default_value=main_cfg.get("audio_drc_threshold", -12.0),
+                                key="-AD-DRC-THRESHOLD-", orientation="h", size=(30, 10), resolution=0.5)],
+                        [sg.Text("Ratio:"), sg.Slider(range=(1.0, 10.0),
+                                default_value=main_cfg.get("audio_drc_ratio", 2.0),
+                                key="-AD-DRC-RATIO-", orientation="h", size=(30, 10), resolution=0.5)],
+                        [sg.Text("Attack (s):"), sg.Slider(range=(0.01, 1.0),
+                                default_value=main_cfg.get("audio_drc_attack", 0.20),
+                                key="-AD-DRC-ATTACK-", orientation="h", size=(30, 10), resolution=0.01)],
+                        [sg.Text("Release (s):"), sg.Slider(range=(0.05, 5.0),
+                                default_value=main_cfg.get("audio_drc_release", 1.0),
+                                key="-AD-DRC-RELEASE-", orientation="h", size=(30, 10), resolution=0.05)],
+                        [sg.HorizontalSeparator()],
+                        [sg.Button("Restore settings for WTD", key="-AD-RESTORE-")],
+                        [sg.Button("Save", key="-AD-SAVE-"), sg.Button("Cancel", key="-AD-CANCEL-")],
+                    ]
+                    aud_win = sg.Window("Audio Settings", audio_layout, modal=True, resizable=True,
+                                        size=(550, 480), location=_popup_location((550, 480)),
+                                        icon=_icon_path('AutoDub.ico'))
+                    while True:
+                        aev, avals = aud_win.read()
+                        if aev in (sg.WINDOW_CLOSED, "-AD-CANCEL-"):
+                            break
+                        if aev == "-AD-SAVE-":
+                            main_cfg["audio_gain_enabled"] = avals.get("-AD-GAIN-ENABLE-", True)
+                            main_cfg["audio_gain_ceiling"] = float(avals.get("-AD-GAIN-CEILING-", -20.0))
+                            main_cfg["audio_drc_enabled"] = avals.get("-AD-DRC-ENABLE-", True)
+                            main_cfg["audio_drc_threshold"] = float(avals.get("-AD-DRC-THRESHOLD-", -12.0))
+                            main_cfg["audio_drc_ratio"] = float(avals.get("-AD-DRC-RATIO-", 2.0))
+                            main_cfg["audio_drc_attack"] = float(avals.get("-AD-DRC-ATTACK-", 0.20))
+                            main_cfg["audio_drc_release"] = float(avals.get("-AD-DRC-RELEASE-", 1.0))
+                            save_config(config)
+                            _log(window, "Audio settings saved")
+                            break
+                        if aev == "-AD-RESTORE-":
+                            main_cfg["audio_gain_enabled"] = True
+                            main_cfg["audio_gain_ceiling"] = -20.0
+                            main_cfg["audio_drc_enabled"] = True
+                            main_cfg["audio_drc_threshold"] = -12.0
+                            main_cfg["audio_drc_ratio"] = 2.0
+                            main_cfg["audio_drc_attack"] = 0.20
+                            main_cfg["audio_drc_release"] = 1.0
+                            aud_win["-AD-GAIN-ENABLE-"].update(True)
+                            aud_win["-AD-GAIN-CEILING-"].update(-20.0)
+                            aud_win["-AD-DRC-ENABLE-"].update(True)
+                            aud_win["-AD-DRC-THRESHOLD-"].update(-12.0)
+                            aud_win["-AD-DRC-RATIO-"].update(2.0)
+                            aud_win["-AD-DRC-ATTACK-"].update(0.20)
+                            aud_win["-AD-DRC-RELEASE-"].update(1.0)
+                            _log(window, "Audio settings restored to defaults")
+                    aud_win.close()
                 if sev == "-MANAGE-MODELS-":
                     _base = os.path.dirname(os.path.abspath(__file__))
                     if getattr(sys, 'frozen', False):
@@ -1246,8 +1349,8 @@ def main():
                 _log(window, f"Save failed: {e}")
                 _popup("Error", f"Failed to save files: {e}", size=(500, 150))
         
-        if event in ("-ZIP-GENDER-", "-FILE-RENAMER-"):
-            scripts = {"-ZIP-GENDER-": "GenderFixer", "-FILE-RENAMER-": "wtdRenamer"}
+        if event in ("-ZIP-GENDER-", "-FILE-RENAMER-", "-AUDIO-PATCHER-"):
+            scripts = {"-ZIP-GENDER-": "GenderFixer", "-FILE-RENAMER-": "wtdRenamer", "-AUDIO-PATCHER-": "AudioPatcher"}
             exe = getattr(sys, 'frozen', False)
             base = os.path.dirname(sys.executable) if exe else os.path.dirname(os.path.abspath(__file__))
             script = os.path.join(base, scripts[event] + (".exe" if exe else ".py"))
@@ -1258,6 +1361,9 @@ def main():
                 if event == "-ZIP-GENDER-":
                     _gf_process = proc
                     window["-ZIP-GENDER-"].update(disabled=True)
+                elif event == "-AUDIO-PATCHER-":
+                    _ap_process = proc
+                    window["-AUDIO-PATCHER-"].update(disabled=True)
                 else:
                     _fr_process = proc
                     window["-FILE-RENAMER-"].update(disabled=True)
@@ -1267,6 +1373,43 @@ def main():
         if event == "-CLEAR-LOG-":
             window["-DEBUG-LOG-"].update("")
             _log(window, "Log cleared")
+        
+        if event == "-DUB-EDITOR-":
+            dub_path = main_cfg.get("dub_editor_path", "")
+            if not dub_path or not os.path.exists(dub_path):
+                default_dir = os.path.expandvars(
+                    r"%LOCALAPPDATA%\Programs\electron-react-boilerplate")
+                default_exe = os.path.join(default_dir, "Dub Editor SA.exe")
+                if os.path.exists(default_exe):
+                    dub_path = default_exe
+                else:
+                    dub_path = sg.filedialog.askopenfilename(
+                        title="Locate Dub Editor SA.exe",
+                        filetypes=[("Executable", "*.exe")],
+                        initialdir=default_dir)
+                    if not dub_path:
+                        continue
+                    if not os.path.exists(dub_path):
+                        _popup("Error", "File not found.")
+                        continue
+                main_cfg["dub_editor_path"] = dub_path
+                save_config(config)
+                _log(window, f"Dub Editor path set: {dub_path}")
+            _log(window, "Launching Dub Editor...")
+            try:
+                proc = subprocess.Popen(
+                    [dub_path], creationflags=subprocess.CREATE_NO_WINDOW)
+                import time as _time
+                _time.sleep(0.5)
+                if proc.poll() is not None:
+                    _popup("Error", "Dub Editor started but exited immediately.")
+                    continue
+                _log(window, "Dub Editor launched. Closing AutoDub...")
+                window.close()
+                break
+            except Exception as e:
+                _popup("Error", f"Failed to launch Dub Editor:\n{e}")
+                continue
         
         if _preview_process is not None and _preview_process.poll() is not None:
             ret = _preview_process.poll()
@@ -1299,6 +1442,10 @@ def main():
         if _gf_process is not None and _gf_process.poll() is not None:
             _gf_process = None
             window["-ZIP-GENDER-"].update(disabled=False)
+        
+        if _ap_process is not None and _ap_process.poll() is not None:
+            _ap_process = None
+            window["-AUDIO-PATCHER-"].update(disabled=False)
         
         if _fr_process is not None and _fr_process.poll() is not None:
             _fr_process = None

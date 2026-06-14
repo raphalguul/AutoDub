@@ -110,7 +110,7 @@ class WtdRenamer(tk.Tk):
 
     def _build_ui(self):
         # Folder selection
-        frame_top = ttk.Frame(self, padding=8)
+        frame_top = ttk.Frame(self, padding=(8, 0, 8, 8))
         frame_top.pack(fill="x")
         ttk.Label(frame_top, text="Target folder:").pack(side="left")
         self._entry = ttk.Entry(frame_top, textvariable=self._folder, width=50)

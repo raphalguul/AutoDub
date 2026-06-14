@@ -260,8 +260,8 @@ def main():
 
     layout = [
         [sg.Text("GenderFixer", font=("Arial", 14, "bold"))],
-        [sg.Text("Source:"), sg.InputText(key="-SOURCE-", size=(55, 1), disabled=True), sg.Button("Browse Zip", key="-BROWSE-ZIP-"), sg.Button("Browse Folder", key="-BROWSE-FOLDER-")],
-        [sg.Button("Update Table", key="-UPDATE-TABLE-"), sg.Button("Only Show Dubs Without Speakers", key="-SHOW-NO-SPEAKER-"), sg.Button("Hide Male Dubs", key="-SHOW-FEMALE-ONLY-")],
+        [sg.Text("Source:"), sg.InputText(key="-SOURCE-", size=(55, 1), disabled=True), sg.Button("Browse zip", key="-BROWSE-ZIP-"), sg.Button("Browse folder", key="-BROWSE-FOLDER-")],
+        [sg.Button("Update table", key="-UPDATE-TABLE-"), sg.Button("Only show dubs without speakers", key="-SHOW-NO-SPEAKER-"), sg.Button("Hide male dubs", key="-SHOW-FEMALE-ONLY-")],
         [sg.Table(values=[], headings=["File", "M", "F", "Speaker"], key="-TABLE-",
                   col_widths=[38, 3, 3, 15], display_row_numbers=False,
                   enable_events=True, enable_click_events=True,
@@ -277,10 +277,10 @@ def main():
              sg.Button("Confirm", key="-SAVE-EDIT-", visible=False),
              sg.Button("Discard", key="-DISCARD-EDIT-", visible=False)],
         ], expand_y=True)],
-        [sg.Button("Make Changes Permanent", key="-SAVE-", disabled=True), sg.Button("Settings", key="-SETTINGS-"), sg.Button("Close", key="-CLOSE-")],
+        [sg.Button("Make changes permanent", key="-SAVE-", disabled=True), sg.Button("Settings", key="-SETTINGS-"), sg.Button("Close", key="-CLOSE-")],
     ]
 
-    window = sg.Window("GenderFixer", layout, size=(1100, 800), resizable=False, finalize=True, enable_close_attempted_event=True, icon=_icon_path('GenderFixer.ico'))
+    window = sg.Window("GenderFixer", layout, size=(1100, 800), margins=(0, 0), resizable=False, finalize=True, enable_close_attempted_event=True, icon=_icon_path('GenderFixer.ico'))
     global _gf_win
     _gf_win = window
 
@@ -632,7 +632,7 @@ def main():
                 [sg.Checkbox("Overwrite original files without confirmation", key="-GF-OVERWRITE-", default=gf_config.get("overwrite_original", False))],
                 [sg.Button("Save"), sg.Button("Cancel")],
             ]
-            set_win = sg.Window("GenderFixer Settings", settings_layout, modal=True, resizable=True, size=(600, 200), location=_popup_location((600, 200)), icon=_icon_path('GenderFixer.ico'))
+            set_win = sg.Window("GenderFixer Settings", settings_layout, modal=True, resizable=True, size=(660, 200), location=_popup_location((600, 200)), icon=_icon_path('GenderFixer.ico'))
             while True:
                 sev, svals = set_win.read()
                 if sev in (sg.WINDOW_CLOSED, "Cancel"):

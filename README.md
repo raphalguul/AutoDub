@@ -12,9 +12,11 @@ Takes an MP4 video and generates an SRT subtitle file with:
 - Replacing existing lines with the dub
 - Manual editing, if desired
 
-It also renames the files to provide compatibility with the ![*Dub Editor* by deusprogrammer](https://github.com/deusprogrammer/dub-editor-electron) (tested in 2.4.4-beta).
+It also renames the files to provide compatibility with the ![*Dub Editor* by deusprogrammer](https://github.com/deusprogrammer/dub-editor-electron) (tested in 2.4.4-beta). Furthermore, it can normalize the audio of your video file to make its volume more suitable for WTD (quiet clips get louder, loud clips get quieter).
 
 Includes a tool to switch the tts gender and identify clips with missing speakers.
+
+Includes a tool to apply gain control and DRC for audio normalization to individual video files or entire folders.
 
 Includes a tool for renaming existing MP4 and SRT files for compatibility with *Dub Editor* and identifying orphan files.
 
@@ -41,13 +43,17 @@ python AutoDub.py
 
 You can also compile your own windows executables with:
 ```
-python build.py --cuda
+python build.py
+```
+Or, for standalone companion tools:
+```
+python build_GenderFixer.py --standalone
 ```
 ```
-python build_GenderFixer.py
+python build_wtdRenamer.py --standalone
 ```
 ```
-python build_wtdRenamer.py
+python build_AudioPatcher.py --standalone
 ```
 
 ### Windows executables
@@ -75,9 +81,9 @@ This is required to transcribe via nVidia GPU. GPU transcription is much faster.
 > [!NOTE]
 > If you don't have an nVidia GPU there is no point in enabling GPU acceleration and downloading the additional binaries. They can be deleted in settings.
 
-**FFMPEG binaries (90 MB)**
+**FFmpeg binaries (90 MB)**
 
-FFMPEG is required to extract the audio from your MP4 files. If FFMPEG is not already installed or if AutoDub cannot find it in PATH, it will download it into the working directory. They can be deleted in settings (not recommended).
+FFmpeg is required to extract the audio from your MP4 files. If FFmpeg is not already installed or if AutoDub cannot find it in PATH, it will download it into the working directory. They can be deleted in settings (not recommended).
 
 ## Default Workflow
 
@@ -115,6 +121,12 @@ It is recommended to set up a folder structure that mirrors WTD mods ("VideoClip
 Genderfixer is a companion tool that loads a folder of SRT files and checks which gender each dub has. This is particularly useful because *Dub Editor* often quietly uses [female_dub] even though the dropdown says otherwise. It also shows you the speaker that's defined in the SRT file (and you will see if no speaker is defined). The tool allows you to load a ZIP file or folder (faster). Gender can be changed directly in the resulting table. Speakers can be added manually by editing the preview to the right (type "XXXX:" in front of the line or dub). All changes are only written to the originals once you press "Make Changes Permanent" in the bottom left.
 
 ![alt text](https://github.com/raphalguul/AutoDub/blob/main/Previews/GenderFixer%20Preview.jpg "GenderFixer")
+
+## AudioPatcher
+
+Another companion tool. It allows you to apply automatic gain control and DRC to your mp4 files. The goal is to make their loudness similar to each other and appropriate for WTD. Default settings are applied. The functionality is also built into AutoDub itself (you can turn it on in settings, which will apply gain and DRC to any video you transcribe). This tool requires FFmpeg just like Autodub.
+
+![alt text](https://github.com/raphalguul/AutoDub/blob/main/Previews/AudioPatcher%20Preview.jpg "wtdRenamer")
 
 ## wtdRenamer
 

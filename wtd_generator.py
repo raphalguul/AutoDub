@@ -47,6 +47,25 @@ class WTDDubGenerator:
         self.video_file = file_path
         return True
 
+    def _get_video_duration(self) -> Optional[float]:
+        if not self.video_file:
+            return None
+        try:
+            r = subprocess.run(
+                [self._ffmpeg_path(), '-i', self.video_file],
+                capture_output=True, text=True, timeout=30,
+                creationflags=subprocess.CREATE_NO_WINDOW)
+            m = re.search(r'Duration: (\d+):(\d+):(\d+)\.(\d+)', r.stderr)
+            if m:
+                h, mi, s = int(m[1]), int(m[2]), int(m[3])
+                ms_raw = m[4]
+                divisor = 100 if len(ms_raw) == 2 else 1000
+                ms = int(ms_raw) * (1000 // divisor)
+                return h * 3600 + mi * 60 + s + ms / 1000
+        except Exception:
+            pass
+        return None
+
     def _ffmpeg_path(self) -> str:
         return self._ensure_ffmpeg()
 
@@ -291,8 +310,6 @@ class WTDDubGenerator:
         except Exception as e:
             self._last_error = f"whisper.cpp: {e}"
             return False
-        
-        return False
 
 
 
@@ -901,6 +918,90 @@ class WTDDubGenerator:
         for i, s in enumerate(self.subtitles):
             s.index = i + 1
         return len(new_lines)
+
+    def process_audio_export(
+        self,
+        output_path: str,
+        gain_enabled: bool,
+        gain_ceiling_db: float,
+        drc_enabled: bool,
+        drc_threshold: float,
+        drc_ratio: float,
+        drc_attack: float,
+        drc_release: float,
+    ) -> bool:
+        if not self.video_file or not os.path.exists(self.video_file):
+            self._last_error = "No video file set or file not found"
+            return False
+        try:
+            filters = []
+            if drc_enabled:
+                filters.append(f'acompressor=threshold={10 ** (drc_threshold / 20)}:ratio={drc_ratio}:attack={drc_attack*1000}:release={drc_release*1000}')
+            if gain_enabled:
+                loudness_target = max(-30, min(-5, gain_ceiling_db))
+                filters.append(f'loudnorm=I={loudness_target}:LRA=7:TP=-1:linear=true')
+            elif drc_enabled:
+                filters.append(f'dynaudnorm=peak=0.95')
+
+            # If output is the same file as input, write to temp then swap
+            same_file = os.path.abspath(output_path) == os.path.abspath(self.video_file)
+            if same_file:
+                fd, write_path = tempfile.mkstemp(suffix='.mp4', dir=os.path.dirname(output_path))
+                os.close(fd)
+            else:
+                write_path = output_path
+
+            for attempt in range(2 if drc_enabled else 1):
+                af = ','.join(filters) if filters else None
+                cmd = [
+                    self._ffmpeg_path(),
+                    '-i', self.video_file,
+                    '-c:v', 'copy',
+                    '-c:a', 'aac',
+                    '-b:a', '192k',
+                ]
+                if af:
+                    cmd.extend(['-af', af])
+                cmd.extend(['-y', write_path])
+
+                print(f"[process_audio_export] Running: {' '.join(cmd)}")
+                si = subprocess.STARTUPINFO()
+                si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                try:
+                    r = subprocess.run(cmd, check=True, capture_output=True, timeout=300,
+                                       creationflags=subprocess.CREATE_NO_WINDOW, startupinfo=si)
+                    break
+                except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+                    if attempt == 0 and drc_enabled:
+                        print(f"[process_audio_export] DRC chain failed, retrying with gain only")
+                        filters = []
+                        if gain_enabled:
+                            loudness_target = max(-30, min(-5, gain_ceiling_db))
+                            filters.append(f'loudnorm=I={loudness_target}:LRA=7:TP=-1:linear=true')
+                        elif drc_enabled:
+                            filters.append(f'acompressor=threshold={10 ** (drc_threshold / 20)}:ratio={drc_ratio}:attack={drc_attack*1000}:release={drc_release*1000}')
+                        continue
+                    raise
+
+            if same_file:
+                os.replace(write_path, output_path)
+            out_size = os.path.getsize(output_path) if os.path.exists(output_path) else 0
+            print(f"[process_audio_export] OK — {output_path} is {out_size} bytes")
+            self._last_error = None
+            return True
+        except subprocess.CalledProcessError as e:
+            err = e.stderr.decode('utf-8', errors='replace') if e.stderr else ''
+            print(f"[process_audio_export] ffmpeg failed (code {e.returncode}): {err[:500]}")
+            self._last_error = f"ffmpeg exited with code {e.returncode}: {err[:2000]}"
+            return False
+        except subprocess.TimeoutExpired:
+            print(f"[process_audio_export] ffmpeg timed out after 300s")
+            self._last_error = "ffmpeg timed out after 300 seconds"
+            return False
+        except Exception as e:
+            print(f"[process_audio_export] unexpected error: {e}")
+            self._last_error = str(e)
+            return False
 
     def cleanup(self):
         if self.audio_file and os.path.exists(self.audio_file):

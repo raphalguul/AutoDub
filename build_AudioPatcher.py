@@ -9,7 +9,6 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).parent
 DIST_DIR = PROJECT_ROOT / "dist"
 BUILD_DIR = PROJECT_ROOT / "build"
-SPEC_FILE = PROJECT_ROOT / "GenderFixer.spec"
 VERSION_FILE = PROJECT_ROOT / "VERSION"
 
 
@@ -51,12 +50,13 @@ def build(use_upx=True, standalone=False):
     prompt_version()
     version = VERSION_FILE.read_text().strip()
 
+    spec_file = PROJECT_ROOT / "AudioPatcher.spec"
     if standalone:
-        final_dir = DIST_DIR / f"GenderFixer {version} standalone"
+        final_dir = DIST_DIR / f"AudioPatcher {version} standalone"
     else:
         final_dir = DIST_DIR / f"AutoDub Suite {version}"
 
-    build_tmp = DIST_DIR / "_build_temp_genderfixer"
+    build_tmp = DIST_DIR / "_build_temp_audiopatcher"
 
     env = os.environ.copy()
     if not use_upx:
@@ -65,14 +65,14 @@ def build(use_upx=True, standalone=False):
     if build_tmp.exists():
         shutil.rmtree(build_tmp)
 
-    print("\nBuilding GenderFixer with PyInstaller...")
+    print(f"\nBuilding AudioPatcher with PyInstaller...")
     cmd = [
         "pyinstaller",
         "--clean", "-y",
         "--distpath", str(build_tmp),
         "--workpath", str(BUILD_DIR),
     ]
-    cmd.append(str(SPEC_FILE))
+    cmd.append(str(spec_file))
 
     result = subprocess.run(cmd, cwd=PROJECT_ROOT, env=env)
     if result.returncode != 0:
@@ -80,22 +80,23 @@ def build(use_upx=True, standalone=False):
         raise RuntimeError("PyInstaller build failed")
     print("Build succeeded!")
 
-    # Move single exe to final directory
-    src_exe = build_tmp / "GenderFixer" / "GenderFixer.exe"
-    if not src_exe.exists():
-        src_exe = build_tmp / "GenderFixer.exe"
+    # Move to final directory
+    src = build_tmp / "AudioPatcher"
     if standalone:
         if final_dir.exists():
             shutil.rmtree(final_dir)
-        final_dir.mkdir(parents=True)
-        shutil.move(str(src_exe), str(final_dir / "GenderFixer.exe"))
+        shutil.move(str(src), str(final_dir))
     else:
         if not final_dir.exists():
             final_dir.mkdir(parents=True)
-        dst = final_dir / "GenderFixer.exe"
-        if dst.exists():
-            dst.unlink()
-        shutil.move(str(src_exe), str(dst))
+        for item in src.iterdir():
+            dst = final_dir / item.name
+            if dst.exists():
+                if dst.is_dir():
+                    shutil.rmtree(dst)
+                else:
+                    dst.unlink()
+            shutil.move(str(item), str(final_dir))
 
     return final_dir, version
 
@@ -104,29 +105,36 @@ def clean_build():
     if BUILD_DIR.exists():
         shutil.rmtree(BUILD_DIR)
         print(f"Cleaned build cache: {BUILD_DIR}")
-    tmp = DIST_DIR / "_build_temp_genderfixer"
+    tmp = DIST_DIR / "_build_temp_audiopatcher"
     if tmp.exists():
         shutil.rmtree(tmp)
 
 
 def print_summary(elapsed, output_dir: Path, version: str):
-    exe = output_dir / "GenderFixer.exe"
+    exe = output_dir / "AudioPatcher.exe"
+    internal = output_dir / "_internal_audiopatcher"
     if not exe.exists():
         return
 
     exe_size = exe.stat().st_size
+    internal_size = 0
+    if internal.exists():
+        internal_size = sum(f.stat().st_size for f in internal.rglob('*') if f.is_file())
+    total = exe_size + internal_size
 
     mins, secs = divmod(int(elapsed), 60)
     print(f"\n{'='*50}")
-    print(f"GenderFixer build complete!  ({mins}m {secs}s)")
+    print(f"Build complete!  ({mins}m {secs}s)")
     print(f"{'='*50}")
     print(f"Output: {output_dir}")
-    print(f"  GenderFixer.exe: {exe_size / 1e6:.1f} MB")
+    print(f"  AudioPatcher.exe: {exe_size / 1e6:.1f} MB")
+    print(f"  _internal_audiopatcher: {internal_size / 1e6:.1f} MB")
+    print(f"  Total:            {total / 1e6:.1f} MB")
 
 
 def main():
     import argparse
-    parser = argparse.ArgumentParser(description="Build GenderFixer")
+    parser = argparse.ArgumentParser(description="Build AudioPatcher")
     parser.add_argument('--standalone', action='store_true',
                         help='Build standalone folder instead of into AutoDub Suite')
     args = parser.parse_args()
