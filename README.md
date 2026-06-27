@@ -87,6 +87,8 @@ FFmpeg is required to extract the audio from your MP4 files. If FFmpeg is not al
 
 ## Default Workflow
 
+[![Video Tutorial](http://img.youtube.com/vi/tL9_bv_d5u0/0.jpg)](https://www.youtube.com/watch?v=tL9_bv_d5u0)
+
 You will need an MP4 that's already trimmed to the length that it will be in the game.
 It is recommended to set up a folder structure that mirrors WTD mods ("VideoClips" and "Subtitles" in the same parent folder), you can also just use the working directory of *Dub Editor* /whatthedub/ (but note that this could potentially lead to overwritten files, particularly if you make edits in *Dub Editor*, then transcribe the same video again in AutoDub)
 
